@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, X } from 'lucide-react';
+import { Play, X, Film } from 'lucide-react';
 
 const VideoGrid = ({ videos }) => {
   const [activeVideo, setActiveVideo] = useState(null);
@@ -31,7 +31,18 @@ const VideoGrid = ({ videos }) => {
               onClick={() => setActiveVideo(video)}
               style={{ cursor: 'pointer' }}
             >
-              <img src={video.thumbnail_url} alt={video.title} className="bento-image" />
+              {video.thumbnail_url ? (
+                <img src={video.thumbnail_url} alt={video.title} className="bento-image" />
+              ) : (
+                <div className="bento-image" style={{
+                  background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Film size={48} color="rgba(255,255,255,0.15)" />
+                </div>
+              )}
               <div className="bento-content">
                 <h3 style={{ fontSize: '24px', marginBottom: '8px' }}>{video.title}</h3>
                 <p style={{ opacity: 0.8, fontSize: '14px', marginBottom: '16px', maxWidth: '80%' }}>{video.description}</p>

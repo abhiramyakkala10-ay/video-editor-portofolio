@@ -133,8 +133,8 @@ const AdminUpload = ({ onVideoAdded }) => {
   const handleUpload = async (e) => {
     e.preventDefault();
 
-    if (!title || !videoFile || !thumbnailFile) {
-      alert("Please provide a title, a video file, and a thumbnail image.");
+    if (!title || !videoFile) {
+      alert("Please provide a title and a video file.");
       return;
     }
 
@@ -146,11 +146,12 @@ const AdminUpload = ({ onVideoAdded }) => {
     try {
       setUploading(true);
 
-      // Upload video and thumbnail in parallel
-      const [videoUrl, thumbnailUrl] = await Promise.all([
-        uploadFileToStorage(videoFile, 'videos', setVideoProgress),
-        uploadFileToStorage(thumbnailFile, 'thumbnails', setThumbProgress),
-      ]);
+      // Upload video (always) and thumbnail (if provided)
+      const videoUrl = await uploadFileToStorage(videoFile, 'videos', setVideoProgress);
+      let thumbnailUrl = null;
+      if (thumbnailFile) {
+        thumbnailUrl = await uploadFileToStorage(thumbnailFile, 'thumbnails', setThumbProgress);
+      }
 
       const { error } = await supabase
         .from('videos')
@@ -256,7 +257,7 @@ const AdminUpload = ({ onVideoAdded }) => {
               isUploading={uploading}
             />
 
-            <p style={{ fontWeight: 600, marginTop: '8px', marginBottom: '4px' }}>Thumbnail Image *</p>
+            <p style={{ fontWeight: 600, marginTop: '8px', marginBottom: '4px' }}>Thumbnail Image <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(optional)</span></p>
             <DropZone
               label="Drop your thumbnail here"
               icon={ImageIcon}
