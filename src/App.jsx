@@ -1,32 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import AdminUpload from './pages/AdminUpload';
+import { supabase } from './supabaseClient';
 
 function App() {
-  // Mocking videos state to be shared across Home and Admin
-  const [videos, setVideos] = useState([
-    {
-      id: 1,
-      title: "Cinematic Reel 2026",
-      description: "A compilation of my best cinematic edits and color grading work.",
-      videoUrl: "https://www.w3schools.com/html/mov_bbb.mp4", // placeholder
-      thumbnail: "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?q=80&w=2070&auto=format&fit=crop"
-    }
-  ]);
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const addVideo = (newVideo) => {
-    setVideos([newVideo, ...videos]);
+  // Fetch videos from Supabase
+  const fetchVideos = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('videos')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setVideos(data || []);
+    } catch (error) {
+      console.error('Error fetching videos:', error.message);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    fetchVideos();
+  }, []);
 
   return (
     <Router>
       <Navbar />
-      <Routes>
-        <Route path="/" element={<Home videos={videos} />} />
-        <Route path="/studio-admin" element={<AdminUpload onAddVideo={addVideo} />} />
-      </Routes>
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--text-secondary)' }}>
+          Loading your portfolio...
+        </div>
+      ) : (
+        <Routes>
+          <Route path="/" element={<Home videos={videos} />} />
+          <Route path="/studio-admin" element={<AdminUpload onVideoAdded={fetchVideos} />} />
+        </Routes>
+      )}
     </Router>
   );
 }

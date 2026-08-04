@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Lock, Upload, Image as ImageIcon } from 'lucide-react';
+import { Lock } from 'lucide-react';
+import { supabase } from '../supabaseClient';
 
-const AdminUpload = ({ onAddVideo }) => {
+const AdminUpload = ({ onVideoAdded }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   
@@ -11,39 +12,51 @@ const AdminUpload = ({ onAddVideo }) => {
   const [description, setDescription] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
   
   const navigate = useNavigate();
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (password === 'abhiram2026') { // Simple mock password
+    if (password === 'abhiram2026') {
       setIsAuthenticated(true);
     } else {
       alert('Incorrect password');
     }
   };
 
-  const handleUpload = (e) => {
+  const handleUpload = async (e) => {
     e.preventDefault();
     
     if (!title || !videoUrl || !thumbnailUrl) {
-      alert("Please fill all required fields");
+      alert("Please fill in all required fields (Title, Video URL, and Thumbnail URL)");
       return;
     }
 
-    const newVideo = {
-      id: Date.now(),
-      title,
-      description,
-      videoUrl,
-      thumbnail: thumbnailUrl
-    };
+    try {
+      setUploading(true);
 
-    onAddVideo(newVideo);
-    
-    // Reset form and go back
-    alert("Video successfully added to portfolio!");
-    navigate('/');
+      const { error } = await supabase
+        .from('videos')
+        .insert([
+          {
+            title,
+            description,
+            video_url: videoUrl,
+            thumbnail_url: thumbnailUrl
+          }
+        ]);
+
+      if (error) throw error;
+
+      alert("Video successfully published to your portfolio!");
+      onVideoAdded();
+      navigate('/');
+    } catch (error) {
+      alert("Error adding video: " + error.message);
+    } finally {
+      setUploading(false);
+    }
   };
 
   if (!isAuthenticated) {
@@ -88,7 +101,7 @@ const AdminUpload = ({ onAddVideo }) => {
         animate={{ opacity: 1, y: 0 }}
       >
         <h1 style={{ marginBottom: '8px', fontSize: '32px' }}>Upload New Work</h1>
-        <p style={{ color: 'var(--text-secondary)', marginBottom: '40px' }}>Add a new video edit to your portfolio showcase.</p>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '40px' }}>Add a new Gumlet video to your portfolio database.</p>
         
         <form onSubmit={handleUpload} className="bento-card" style={{ padding: '40px' }}>
           
@@ -100,6 +113,7 @@ const AdminUpload = ({ onAddVideo }) => {
               placeholder="e.g. Cinematic Travel Vlog" 
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              disabled={uploading}
             />
           </div>
 
@@ -108,48 +122,52 @@ const AdminUpload = ({ onAddVideo }) => {
             <textarea 
               className="form-control" 
               rows="3" 
-              placeholder="Briefly describe the edit, software used, etc."
+              placeholder="Briefly describe the edit, techniques, software used."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              disabled={uploading}
             ></textarea>
           </div>
 
           <div className="form-group">
-            <label>Video File URL *</label>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <input 
-                type="url" 
-                className="form-control" 
-                placeholder="https://..." 
-                value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-              />
-              <button type="button" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px' }}>
-                <Upload size={16} /> File
-              </button>
-            </div>
-            <small style={{ color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>Provide a direct link to the video (e.g. mp4) or upload a mock file.</small>
+            <label>Gumlet Video URL *</label>
+            <input 
+              type="url" 
+              className="form-control" 
+              placeholder="https://play.gumlet.com/embed/... or direct mp4 link" 
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              disabled={uploading}
+            />
+            <small style={{ color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
+              Paste your Gumlet play/embed link or direct MP4 link here.
+            </small>
           </div>
 
           <div className="form-group">
             <label>Thumbnail Image URL *</label>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <input 
-                type="url" 
-                className="form-control" 
-                placeholder="https://..." 
-                value={thumbnailUrl}
-                onChange={(e) => setThumbnailUrl(e.target.value)}
-              />
-              <button type="button" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px' }}>
-                <ImageIcon size={16} /> File
-              </button>
-            </div>
+            <input 
+              type="url" 
+              className="form-control" 
+              placeholder="https://..." 
+              value={thumbnailUrl}
+              onChange={(e) => setThumbnailUrl(e.target.value)}
+              disabled={uploading}
+            />
           </div>
 
           <div style={{ marginTop: '40px', display: 'flex', gap: '16px' }}>
-            <button type="submit" style={{ flex: 1, backgroundColor: 'var(--accent-color)' }}>Publish Video</button>
-            <button type="button" style={{ flex: 1, backgroundColor: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} onClick={() => navigate('/')}>Cancel</button>
+            <button type="submit" style={{ flex: 1, backgroundColor: 'var(--accent-color)' }} disabled={uploading}>
+              {uploading ? 'Publishing...' : 'Publish Video'}
+            </button>
+            <button 
+              type="button" 
+              style={{ flex: 1, backgroundColor: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} 
+              onClick={() => navigate('/')}
+              disabled={uploading}
+            >
+              Cancel
+            </button>
           </div>
         </form>
       </motion.div>
