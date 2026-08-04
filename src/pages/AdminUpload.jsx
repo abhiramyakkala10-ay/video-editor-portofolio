@@ -1,35 +1,48 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Upload, Image as ImageIcon, Film, X, CheckCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Lock, Image as ImageIcon, Film, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import * as tus from 'tus-js-client';
 import { supabase } from '../supabaseClient';
 
-const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm', 'video/mpeg', 'video/ogg', 'video/3gpp'];
-const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const DropZone = ({ label, icon: Icon, accept, onFileSelect, file, progress, isUploading }) => {
+// Format bytes to human readable size
+const formatBytes = (bytes) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+// Format seconds to human readable time
+const formatTime = (seconds) => {
+  if (!seconds || !isFinite(seconds)) return 'calculating...';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+};
+
+const DropZone = ({ label, icon: Icon, accept, onFileSelect, file, disabled }) => {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef(null);
 
-  const handleDragEnter = useCallback((e) => { e.preventDefault(); setIsDragging(true); }, []);
-  const handleDragLeave = useCallback((e) => { e.preventDefault(); setIsDragging(false); }, []);
-  const handleDragOver = useCallback((e) => { e.preventDefault(); }, []);
-
+  const handleDragEnter = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
+  const handleDragLeave = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }, []);
+  const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); }, []);
   const handleDrop = useCallback((e) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile) onFileSelect(droppedFile);
   }, [onFileSelect]);
 
-  const handleChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) onFileSelect(selectedFile);
-  };
-
   return (
     <div
-      onClick={() => !file && inputRef.current?.click()}
+      onClick={() => !disabled && !file && inputRef.current?.click()}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -37,44 +50,132 @@ const DropZone = ({ label, icon: Icon, accept, onFileSelect, file, progress, isU
       style={{
         border: `2px dashed ${isDragging ? 'var(--accent-color)' : file ? '#34c759' : 'var(--border-color)'}`,
         borderRadius: '16px',
-        padding: '32px 20px',
+        padding: '28px 20px',
         textAlign: 'center',
-        cursor: file ? 'default' : 'pointer',
+        cursor: disabled || file ? 'default' : 'pointer',
         transition: 'all 0.3s ease',
         backgroundColor: isDragging ? 'rgba(0,102,204,0.05)' : file ? 'rgba(52,199,89,0.05)' : 'transparent',
-        position: 'relative',
-        overflow: 'hidden',
       }}
     >
       <input
         ref={inputRef}
         type="file"
         accept={accept}
-        onChange={handleChange}
+        onChange={(e) => { const f = e.target.files[0]; if (f) onFileSelect(f); }}
         style={{ display: 'none' }}
       />
-
-      {isUploading && progress < 100 ? (
-        <div>
-          <div style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '14px' }}>Uploading... {Math.round(progress)}%</div>
-          <div style={{ height: '4px', backgroundColor: 'var(--border-color)', borderRadius: '2px', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${progress}%`, backgroundColor: 'var(--accent-color)', borderRadius: '2px', transition: 'width 0.3s ease' }} />
-          </div>
-        </div>
-      ) : file ? (
+      {file ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', color: '#34c759' }}>
           <CheckCircle size={20} />
-          <span style={{ fontSize: '14px', fontWeight: 500 }}>{file.name}</span>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '14px', fontWeight: 500 }}>{file.name}</div>
+            <div style={{ fontSize: '12px', opacity: 0.7 }}>{formatBytes(file.size)}</div>
+          </div>
         </div>
       ) : (
         <>
-          <Icon size={32} color="var(--text-secondary)" style={{ marginBottom: '12px' }} />
-          <p style={{ fontWeight: 600, marginBottom: '4px' }}>{label}</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Drag & drop from Finder or click to browse</p>
+          <Icon size={28} color="var(--text-secondary)" style={{ marginBottom: '10px' }} />
+          <p style={{ fontWeight: 600, marginBottom: '4px', fontSize: '15px' }}>{label}</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Drag & drop from Finder or click to browse</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '11px', marginTop: '6px', opacity: 0.6 }}>Supports MP4, MOV, AVI, MKV, WebM — any size</p>
         </>
       )}
     </div>
   );
+};
+
+const UploadProgress = ({ label, progress, speed, timeLeft, status, error, onRetry }) => (
+  <div style={{ padding: '16px', borderRadius: '12px', backgroundColor: 'var(--bg-color)', border: '1px solid var(--border-color)' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+      <span style={{ fontSize: '13px', fontWeight: 500 }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {error ? (
+          <button onClick={onRetry} style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '20px' }}>
+            <RefreshCw size={12} /> Retry
+          </button>
+        ) : (
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {status === 'done' ? '✓ Done' : `${Math.round(progress)}%`}
+          </span>
+        )}
+      </div>
+    </div>
+
+    <div style={{ height: '4px', backgroundColor: 'var(--border-color)', borderRadius: '2px', overflow: 'hidden' }}>
+      <div style={{
+        height: '100%',
+        width: `${progress}%`,
+        backgroundColor: error ? '#ff3b30' : status === 'done' ? '#34c759' : 'var(--accent-color)',
+        borderRadius: '2px',
+        transition: 'width 0.4s ease'
+      }} />
+    </div>
+
+    {!error && status !== 'done' && (speed || timeLeft) && (
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
+        {speed && <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{speed}/s</span>}
+        {timeLeft && <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>~{timeLeft} remaining</span>}
+      </div>
+    )}
+    {error && <p style={{ fontSize: '12px', color: '#ff3b30', marginTop: '6px' }}>{error}</p>}
+  </div>
+);
+
+// TUS chunked upload — handles files of ANY size (GB+)
+const uploadWithTus = (file, bucket, onProgress, onSuccess, onError) => {
+  const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${file.name.split('.').pop()}`;
+  let startTime = Date.now();
+  let lastLoaded = 0;
+
+  const upload = new tus.Upload(file, {
+    endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+    retryDelays: [0, 3000, 5000, 10000, 20000],
+    headers: {
+      authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'x-upsert': 'false',
+    },
+    uploadDataDuringCreation: true,
+    removeFingerprintOnSuccess: true,
+    metadata: {
+      bucketName: bucket,
+      objectName: fileName,
+      contentType: file.type || 'video/mp4',
+      cacheControl: '3600',
+    },
+    chunkSize: 6 * 1024 * 1024, // 6MB chunks
+    onError: (error) => {
+      console.error('TUS upload error:', error);
+      onError(error.message || 'Upload failed');
+    },
+    onProgress: (bytesUploaded, bytesTotal) => {
+      const percentage = (bytesUploaded / bytesTotal) * 100;
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speed = (bytesUploaded - lastLoaded) / (elapsed || 1);
+      const remaining = speed > 0 ? (bytesTotal - bytesUploaded) / speed : null;
+
+      lastLoaded = bytesUploaded;
+      startTime = Date.now();
+
+      onProgress({
+        percentage,
+        speed: formatBytes(speed),
+        timeLeft: formatTime(remaining),
+      });
+    },
+    onSuccess: () => {
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${fileName}`;
+      onSuccess(publicUrl);
+    },
+  });
+
+  upload.findPreviousUploads().then((previousUploads) => {
+    if (previousUploads.length > 0) {
+      upload.resumeFromPreviousUpload(previousUploads[0]);
+    }
+    upload.start();
+  });
+
+  return upload;
 };
 
 const AdminUpload = ({ onVideoAdded }) => {
@@ -85,96 +186,90 @@ const AdminUpload = ({ onVideoAdded }) => {
   const [description, setDescription] = useState('');
   const [videoFile, setVideoFile] = useState(null);
   const [thumbnailFile, setThumbnailFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [videoProgress, setVideoProgress] = useState(0);
-  const [thumbProgress, setThumbProgress] = useState(0);
 
+  const [uploading, setUploading] = useState(false);
+  const [videoUpload, setVideoUpload] = useState({ percentage: 0, speed: '', timeLeft: '', status: 'idle', error: null });
+  const [thumbUpload, setThumbUpload] = useState({ percentage: 0, speed: '', timeLeft: '', status: 'idle', error: null });
+
+  const videoUploadRef = useRef(null);
+  const thumbUploadRef = useRef(null);
   const navigate = useNavigate();
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (password === 'abhiram2026') {
-      setIsAuthenticated(true);
-    } else {
-      alert('Incorrect password');
-    }
+    if (password === 'abhiram2026') setIsAuthenticated(true);
+    else alert('Incorrect password');
   };
 
-  const uploadFileToStorage = async (file, bucket, onProgress) => {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-
-    // Simulate progress while Supabase uploads (SDK doesn't support progress natively)
-    let fakeProgress = 0;
-    const progressInterval = setInterval(() => {
-      fakeProgress = Math.min(fakeProgress + Math.random() * 15, 90);
-      onProgress(fakeProgress);
-    }, 300);
-
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .upload(fileName, file, {
-        cacheControl: '3600',
-        upsert: false,
-      });
-
-    clearInterval(progressInterval);
-    onProgress(100);
-
-    if (error) throw error;
-
-    const { data: { publicUrl } } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(data.path);
-
-    return publicUrl;
-  };
-
-  const handleUpload = async (e) => {
-    e.preventDefault();
-
+  const doUpload = () => {
     if (!title || !videoFile) {
-      alert("Please provide a title and a video file.");
+      alert('Please provide a title and a video file.');
       return;
     }
 
-    if (!ACCEPTED_VIDEO_TYPES.includes(videoFile.type) && !videoFile.name.match(/\.(mp4|mov|avi|mkv|webm|mpeg|ogv|3gp)$/i)) {
-      alert("Unsupported video format. Please use MP4, MOV, AVI, MKV, or WebM.");
-      return;
-    }
+    setUploading(true);
+    let videoUrl = null;
+    let thumbnailUrl = null;
+    let videosDone = false;
+    let thumbDone = !thumbnailFile; // If no thumbnail, count as done
 
-    try {
-      setUploading(true);
-
-      // Upload video (always) and thumbnail (if provided)
-      const videoUrl = await uploadFileToStorage(videoFile, 'videos', setVideoProgress);
-      let thumbnailUrl = null;
-      if (thumbnailFile) {
-        thumbnailUrl = await uploadFileToStorage(thumbnailFile, 'thumbnails', setThumbProgress);
+    const tryFinish = async () => {
+      if (!videosDone || !thumbDone) return;
+      try {
+        const { error } = await supabase
+          .from('videos')
+          .insert([{ title, description, video_url: videoUrl, thumbnail_url: thumbnailUrl }]);
+        if (error) throw error;
+        alert('Video successfully published to your portfolio!');
+        onVideoAdded();
+        navigate('/');
+      } catch (err) {
+        alert('Database save failed: ' + err.message);
+        setUploading(false);
       }
+    };
 
-      const { error } = await supabase
-        .from('videos')
-        .insert([{ title, description, video_url: videoUrl, thumbnail_url: thumbnailUrl }]);
+    // Upload video
+    setVideoUpload({ percentage: 0, speed: '', timeLeft: '', status: 'uploading', error: null });
+    videoUploadRef.current = uploadWithTus(
+      videoFile,
+      'videos',
+      (progress) => setVideoUpload({ ...progress, status: 'uploading', error: null }),
+      (url) => {
+        videoUrl = url;
+        videosDone = true;
+        setVideoUpload((prev) => ({ ...prev, percentage: 100, status: 'done', error: null }));
+        tryFinish();
+      },
+      (err) => {
+        setVideoUpload((prev) => ({ ...prev, status: 'error', error: err }));
+        setUploading(false);
+      }
+    );
 
-      if (error) throw error;
-
-      alert("Video successfully published to your portfolio!");
-      onVideoAdded();
-      navigate('/');
-    } catch (error) {
-      alert("Upload failed: " + error.message);
-      console.error(error);
-    } finally {
-      setUploading(false);
-      setVideoProgress(0);
-      setThumbProgress(0);
+    // Upload thumbnail if present
+    if (thumbnailFile) {
+      setThumbUpload({ percentage: 0, speed: '', timeLeft: '', status: 'uploading', error: null });
+      thumbUploadRef.current = uploadWithTus(
+        thumbnailFile,
+        'thumbnails',
+        (progress) => setThumbUpload({ ...progress, status: 'uploading', error: null }),
+        (url) => {
+          thumbnailUrl = url;
+          thumbDone = true;
+          setThumbUpload((prev) => ({ ...prev, percentage: 100, status: 'done', error: null }));
+          tryFinish();
+        },
+        (err) => {
+          setThumbUpload((prev) => ({ ...prev, status: 'error', error: err }));
+        }
+      );
     }
   };
 
   if (!isAuthenticated) {
     return (
-      <div className="container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', paddingTop: '60px' }}>
+      <div className="container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -188,7 +283,6 @@ const AdminUpload = ({ onVideoAdded }) => {
           </div>
           <h2 style={{ marginBottom: '8px' }}>Studio Access</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>Enter your password to upload new work.</p>
-
           <form onSubmit={handleLogin}>
             <div className="form-group">
               <input
@@ -212,13 +306,11 @@ const AdminUpload = ({ onVideoAdded }) => {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <h1 style={{ marginBottom: '8px', fontSize: '32px' }}>Upload New Work</h1>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '40px' }}>
-          Drag your video from Finder or click to browse. Supports MP4, MOV, AVI, MKV, WebM and more.
+          Large files are split into 6MB chunks and uploaded reliably. If it disconnects, it auto-resumes.
         </p>
 
-        <form onSubmit={handleUpload} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="bento-card" style={{ padding: '30px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Project Title *</label>
               <input
@@ -230,7 +322,6 @@ const AdminUpload = ({ onVideoAdded }) => {
                 disabled={uploading}
               />
             </div>
-
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Description</label>
               <textarea
@@ -242,43 +333,64 @@ const AdminUpload = ({ onVideoAdded }) => {
                 disabled={uploading}
               />
             </div>
-
           </div>
 
           <div className="bento-card" style={{ padding: '30px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <p style={{ fontWeight: 600, marginBottom: '4px' }}>Video File *</p>
+            <p style={{ fontWeight: 600 }}>Video File * <span style={{ color: 'var(--text-secondary)', fontWeight: 400, fontSize: '13px' }}>— any size, any format</span></p>
             <DropZone
               label="Drop your video here"
               icon={Film}
-              accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,video/mpeg,.mp4,.mov,.avi,.mkv,.webm,.mpeg,.ogv"
+              accept="video/*,.mp4,.mov,.avi,.mkv,.webm,.mpeg,.ogv,.m4v,.ts,.mxf"
               onFileSelect={setVideoFile}
               file={videoFile}
-              progress={videoProgress}
-              isUploading={uploading}
+              disabled={uploading}
             />
 
-            <p style={{ fontWeight: 600, marginTop: '8px', marginBottom: '4px' }}>Thumbnail Image <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(optional)</span></p>
+            {uploading && videoFile && (
+              <UploadProgress
+                label={`Uploading: ${videoFile.name}`}
+                progress={videoUpload.percentage}
+                speed={videoUpload.speed}
+                timeLeft={videoUpload.timeLeft}
+                status={videoUpload.status}
+                error={videoUpload.error}
+                onRetry={doUpload}
+              />
+            )}
+
+            <p style={{ fontWeight: 600, marginTop: '8px' }}>
+              Thumbnail <span style={{ color: 'var(--text-secondary)', fontWeight: 400, fontSize: '13px' }}>(optional)</span>
+            </p>
             <DropZone
               label="Drop your thumbnail here"
               icon={ImageIcon}
               accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
               onFileSelect={setThumbnailFile}
               file={thumbnailFile}
-              progress={thumbProgress}
-              isUploading={uploading}
+              disabled={uploading}
             />
+
+            {uploading && thumbnailFile && (
+              <UploadProgress
+                label={`Uploading: ${thumbnailFile.name}`}
+                progress={thumbUpload.percentage}
+                speed={thumbUpload.speed}
+                timeLeft={thumbUpload.timeLeft}
+                status={thumbUpload.status}
+                error={thumbUpload.error}
+              />
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '16px' }}>
             <button
-              type="submit"
-              style={{ flex: 1, backgroundColor: 'var(--accent-color)', opacity: uploading ? 0.6 : 1 }}
+              onClick={doUpload}
+              style={{ flex: 1, backgroundColor: 'var(--accent-color)', opacity: uploading ? 0.5 : 1 }}
               disabled={uploading}
             >
-              {uploading ? 'Uploading...' : 'Publish to Portfolio'}
+              {uploading ? 'Uploading — keep this tab open...' : 'Publish to Portfolio'}
             </button>
             <button
-              type="button"
               style={{ flex: 1, backgroundColor: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
               onClick={() => navigate('/')}
               disabled={uploading}
@@ -287,7 +399,12 @@ const AdminUpload = ({ onVideoAdded }) => {
             </button>
           </div>
 
-        </form>
+          {uploading && (
+            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              ⚡ Uploading in 6MB chunks — do not close this tab
+            </p>
+          )}
+        </div>
       </motion.div>
     </div>
   );
